@@ -1,0 +1,246 @@
+{
+  "name": "Slack ChatGPT Workflow - Compatible",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "slack-chatgpt",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Slack Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        100,
+        200
+      ],
+      "id": "node-slack-webhook"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Slack Challenge確認\nif ($json.body?.type === \"url_verification\") {\n  return [{ json: { challenge: $json.body.challenge } }];\n}\n\n// 通常メッセージ抽出\nconst eventData = $json.body.event || {};\n\nreturn [{\n  json: {\n    text: eventData.text || '',\n    channel: eventData.channel || '',\n    thread_ts: eventData.ts || '',\n    user: eventData.user || ''\n  }\n}];"
+      },
+      "name": "メッセージ整形",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        300,
+        200
+      ],
+      "id": "node-message-format"
+    },
+    {
+      "parameters": {
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "httpMethod": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"model\": \"gpt-3.5-turbo\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"以下の文章から重要なキーワードを3個抽出してください：\\n\\n{{ $json.text }}\\n\\n出力形式: keyword1, keyword2, keyword3\"\n    }\n  ],\n  \"temperature\": 0.3,\n  \"max_tokens\": 100\n}",
+        "options": {}
+      },
+      "name": "キーワード抽出",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        500,
+        200
+      ],
+      "id": "node-keyword",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "YOUR_OPENAI_HEADER_AUTH_ID",
+          "name": "OpenAI API Header Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.tavily.com/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "httpMethod": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"query\": \"{{ $json.choices[0].message.content }}\",\n  \"max_results\": 3\n}",
+        "options": {}
+      },
+      "name": "Tavily検索",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        700,
+        200
+      ],
+      "id": "node-tavily",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "YOUR_TAVILY_CREDENTIAL_ID",
+          "name": "Tavily API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const results = $json.results || [];\nconst summary = results.map(r => `- ${r.title}: ${r.url}`).join(\"\\n\") || '検索結果なし';\nconst userInput = $node[\"メッセージ整形\"].json.text || '';\n\nconst prompt = `質問: ${userInput}\n\n参考文献:\n${summary}\n\nこれに対する親切で正確な回答を出力してください。`;\n\nreturn [{ json: { prompt: prompt } }];"
+      },
+      "name": "プロンプト生成",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        900,
+        200
+      ],
+      "id": "node-prompt"
+    },
+    {
+      "parameters": {
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "httpMethod": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"model\": \"gpt-3.5-turbo\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"{{ $json.prompt }}\"\n    }\n  ],\n  \"temperature\": 0.7,\n  \"max_tokens\": 500\n}",
+        "options": {}
+      },
+      "name": "ChatGPT応答",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        1100,
+        200
+      ],
+      "id": "node-chatgpt",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "YOUR_OPENAI_HEADER_AUTH_ID",
+          "name": "OpenAI API Header Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://slack.com/api/chat.postMessage",
+        "authentication": "none",
+        "httpMethod": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_SLACK_BOT_TOKEN"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"channel\": \"{{ $node[\\\"メッセージ整形\\\"].json.channel }}\",\n  \"text\": \"{{ $json.choices[0].message.content }}\",\n  \"thread_ts\": \"{{ $node[\\\"メッセージ整形\\\"].json.thread_ts }}\"\n}",
+        "options": {}
+      },
+      "name": "Slackへ返信",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        1300,
+        200
+      ],
+      "id": "node-slack-reply"
+    }
+  ],
+  "connections": {
+    "Slack Webhook": {
+      "main": [
+        [
+          {
+            "node": "メッセージ整形",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "メッセージ整形": {
+      "main": [
+        [
+          {
+            "node": "キーワード抽出",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "キーワード抽出": {
+      "main": [
+        [
+          {
+            "node": "Tavily検索",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tavily検索": {
+      "main": [
+        [
+          {
+            "node": "プロンプト生成",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "プロンプト生成": {
+      "main": [
+        [
+          {
+            "node": "ChatGPT応答",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ChatGPT応答": {
+      "main": [
+        [
+          {
+            "node": "Slackへ返信",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "id": "workflow-compatible"
+}
