@@ -1,5 +1,5 @@
 {
-  "name": "Slack ChatGPT Workflow - Compatible",
+  "name": "Slack ChatGPT Workflow - Improved",
   "nodes": [
     {
       "parameters": {
@@ -19,7 +19,7 @@
     },
     {
       "parameters": {
-        "functionCode": "// Slack Challenge確認\nif ($json.body?.type === \"url_verification\") {\n  return [{ json: { challenge: $json.body.challenge } }];\n}\n\n// 通常メッセージ抽出\nconst eventData = $json.body.event || {};\n\nreturn [{\n  json: {\n    text: eventData.text || '',\n    channel: eventData.channel || '',\n    thread_ts: eventData.ts || '',\n    user: eventData.user || ''\n  }\n}];"
+        "functionCode": "// Slack Challenge確認\nif ($json.body?.type === \"url_verification\") {\n  return [{ json: { challenge: $json.body.challenge } }];\n}\n\n// 通常メッセージ抽出\nconst eventData = $json.body.event || {};\n\n// ボットメッセージは無視\nif (eventData.bot_id || eventData.subtype === 'bot_message') {\n  return [];\n}\n\nreturn [{\n  json: {\n    text: eventData.text || '',\n    channel: eventData.channel || '',\n    thread_ts: eventData.ts || '',\n    user: eventData.user || '',\n    user_name: eventData.user_name || 'ユーザー'\n  }\n}];"
       },
       "name": "メッセージ整形",
       "type": "n8n-nodes-base.function",
@@ -33,26 +33,25 @@
     {
       "parameters": {
         "url": "https://api.openai.com/v1/chat/completions",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
         "httpMethod": "POST",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "{\n  \"model\": \"gpt-3.5-turbo\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"以下の文章から重要なキーワードを3個抽出してください：\\n\\n{{ $json.text }}\\n\\n出力形式: keyword1, keyword2, keyword3\"\n    }\n  ],\n  \"temperature\": 0.3,\n  \"max_tokens\": 100\n}",
-        "options": {}
+        "jsonBody": "{\n  \"model\": \"gpt-4o\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"以下の文章から重要なキーワードを3個抽出してください。検索に適した単語のみを抽出し、カンマ区切りで出力してください：\\n\\n{{ $json.text }}\\n\\n出力形式: keyword1, keyword2, keyword3\"\n    }\n  ],\n  \"temperature\": 0.2,\n  \"max_tokens\": 50\n}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json",
+              "fullResponse": false
+            }
+          }
+        }
       },
       "name": "キーワード抽出",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 3,
+      "typeVersion": 4,
       "position": [
         500,
         200
@@ -61,39 +60,92 @@
       "credentials": {
         "httpHeaderAuth": {
           "id": "YOUR_OPENAI_HEADER_AUTH_ID",
-          "name": "OpenAI API Header Auth"
+          "name": "OpenAI API"
         }
-      }
+      },
+      "continueOnFail": true
     },
     {
       "parameters": {
-        "url": "https://api.tavily.com/search",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "httpMethod": "POST",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "{\n  \"query\": \"{{ $json.choices[0].message.content }}\",\n  \"max_results\": 3\n}",
-        "options": {}
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.choices }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "exists"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
       },
-      "name": "Tavily検索",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 3,
+      "name": "キーワード抽出成功チェック",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
       "position": [
         700,
         200
       ],
-      "id": "node-tavily",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "YOUR_TAVILY_CREDENTIAL_ID",
-          "name": "Tavily API"
-        }
-      }
+      "id": "node-keyword-check"
     },
     {
       "parameters": {
-        "functionCode": "const results = $json.results || [];\nconst summary = results.map(r => `- ${r.title}: ${r.url}`).join(\"\\n\") || '検索結果なし';\nconst userInput = $node[\"メッセージ整形\"].json.text || '';\n\nconst prompt = `質問: ${userInput}\n\n参考文献:\n${summary}\n\nこれに対する親切で正確な回答を出力してください。`;\n\nreturn [{ json: { prompt: prompt } }];"
+        "functionCode": "// キーワードを清掃・整形\nconst keywordText = $json.choices[0].message.content || '';\nconst cleanedKeywords = keywordText.trim().replace(/\\n/g, ' ');\n\nreturn [{\n  json: {\n    query: encodeURIComponent(cleanedKeywords)\n  }\n}];"
+      },
+      "name": "検索クエリ整形",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        900,
+        100
+      ],
+      "id": "node-query-format"
+    },
+    {
+      "parameters": {
+        "url": "https://api.tavily.com/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "httpMethod": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"query\": \"{{ decodeURIComponent($json.query) }}\",\n  \"max_results\": 3,\n  \"search_depth\": \"basic\",\n  \"include_domains\": [],\n  \"exclude_domains\": []\n}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json",
+              "fullResponse": false
+            }
+          }
+        }
+      },
+      "name": "Tavily検索",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1100,
+        100
+      ],
+      "id": "node-tavily",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "YOUR_TAVILY_HEADER_AUTH_ID",
+          "name": "Tavily API"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "functionCode": "// 検索結果とユーザー情報を統合\nconst results = $json.results || [];\nconst summary = results.length > 0 \n  ? results.map(r => `- ${r.title}: ${r.url}`).join(\"\\n\")\n  : '申し訳ございませんが、関連する最新の情報を見つけることができませんでした。';\n\nconst userInput = $node[\"メッセージ整形\"].json.text || '';\nconst userName = $node[\"メッセージ整形\"].json.user_name || 'ユーザー';\nconst userId = $node[\"メッセージ整形\"].json.user || '';\n\nconst prompt = `質問者: ${userName} (ID: ${userId})\n質問: ${userInput}\n\n参考情報:\n${summary}\n\n上記の情報を参考に、質問者に対して親切で正確な回答を日本語で提供してください。情報が不十分な場合は、その旨を明確に伝えてください。`;\n\nreturn [{ json: { prompt: prompt } }];"
       },
       "name": "プロンプト生成",
       "type": "n8n-nodes-base.function",
@@ -106,70 +158,133 @@
     },
     {
       "parameters": {
+        "functionCode": "// 検索失敗時のフォールバックプロンプト\nconst userInput = $node[\"メッセージ整形\"].json.text || '';\nconst userName = $node[\"メッセージ整形\"].json.user_name || 'ユーザー';\nconst userId = $node[\"メッセージ整形\"].json.user || '';\n\nconst prompt = `質問者: ${userName} (ID: ${userId})\n質問: ${userInput}\n\n申し訳ございませんが、現在外部の最新情報を取得できない状況です。一般的な知識の範囲で回答いたします。より詳細な情報が必要な場合は、後ほど再度お試しください。`;\n\nreturn [{ json: { prompt: prompt } }];"
+      },
+      "name": "フォールバックプロンプト",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        900,
+        300
+      ],
+      "id": "node-fallback-prompt"
+    },
+    {
+      "parameters": {
         "url": "https://api.openai.com/v1/chat/completions",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
         "httpMethod": "POST",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "{\n  \"model\": \"gpt-3.5-turbo\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"{{ $json.prompt }}\"\n    }\n  ],\n  \"temperature\": 0.7,\n  \"max_tokens\": 500\n}",
-        "options": {}
+        "jsonBody": "{\n  \"model\": \"gpt-4o\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"あなたは親切で知識豊富なアシスタントです。質問に対して正確で有用な情報を提供してください。\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"{{ $json.prompt }}\"\n    }\n  ],\n  \"temperature\": 0.7,\n  \"max_tokens\": 400\n}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json",
+              "fullResponse": false
+            }
+          }
+        }
       },
       "name": "ChatGPT応答",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 3,
+      "typeVersion": 4,
       "position": [
-        1100,
+        1300,
         200
       ],
       "id": "node-chatgpt",
       "credentials": {
         "httpHeaderAuth": {
           "id": "YOUR_OPENAI_HEADER_AUTH_ID",
-          "name": "OpenAI API Header Auth"
+          "name": "OpenAI API"
         }
-      }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.choices }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "exists"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "name": "ChatGPT応答チェック",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        200
+      ],
+      "id": "node-chatgpt-check"
+    },
+    {
+      "parameters": {
+        "functionCode": "const responseText = $json.choices?.[0]?.message?.content || '申し訳ございませんが、現在回答を生成できません。しばらく後にもう一度お試しください。';\n\nreturn [{\n  json: {\n    channel: $node[\"メッセージ整形\"].json.channel,\n    text: responseText,\n    thread_ts: $node[\"メッセージ整形\"].json.thread_ts\n  }\n}];"
+      },
+      "name": "応答整形",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1700,
+        100
+      ],
+      "id": "node-response-format"
+    },
+    {
+      "parameters": {
+        "functionCode": "return [{\n  json: {\n    channel: $node[\"メッセージ整形\"].json.channel,\n    text: '申し訳ございませんが、現在システムに問題が発生しており、回答を生成できません。しばらく後にもう一度お試しください。',\n    thread_ts: $node[\"メッセージ整形\"].json.thread_ts\n  }\n}];"
+      },
+      "name": "エラー応答",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1700,
+        300
+      ],
+      "id": "node-error-response"
     },
     {
       "parameters": {
         "url": "https://slack.com/api/chat.postMessage",
-        "authentication": "none",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
         "httpMethod": "POST",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "Bearer YOUR_SLACK_BOT_TOKEN"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "{\n  \"channel\": \"{{ $node[\\\"メッセージ整形\\\"].json.channel }}\",\n  \"text\": \"{{ $json.choices[0].message.content }}\",\n  \"thread_ts\": \"{{ $node[\\\"メッセージ整形\\\"].json.thread_ts }}\"\n}",
+        "jsonBody": "{\n  \"channel\": \"{{ $json.channel }}\",\n  \"text\": \"{{ $json.text }}\",\n  \"thread_ts\": \"{{ $json.thread_ts }}\"\n}",
         "options": {}
       },
       "name": "Slackへ返信",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 3,
+      "typeVersion": 4,
       "position": [
-        1300,
+        1900,
         200
       ],
-      "id": "node-slack-reply"
+      "id": "node-slack-reply",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "YOUR_SLACK_HEADER_AUTH_ID",
+          "name": "Slack API"
+        }
+      }
     }
   ],
   "connections": {
@@ -196,6 +311,35 @@
       ]
     },
     "キーワード抽出": {
+      "main": [
+        [
+          {
+            "node": "キーワード抽出成功チェック",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "キーワード抽出成功チェック": {
+      "main": [
+        [
+          {
+            "node": "検索クエリ整形",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "フォールバックプロンプト",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "検索クエリ整形": {
       "main": [
         [
           {
@@ -228,7 +372,58 @@
         ]
       ]
     },
+    "フォールバックプロンプト": {
+      "main": [
+        [
+          {
+            "node": "ChatGPT応答",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "ChatGPT応答": {
+      "main": [
+        [
+          {
+            "node": "ChatGPT応答チェック",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ChatGPT応答チェック": {
+      "main": [
+        [
+          {
+            "node": "応答整形",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "エラー応答",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "応答整形": {
+      "main": [
+        [
+          {
+            "node": "Slackへ返信",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "エラー応答": {
       "main": [
         [
           {
@@ -242,5 +437,5 @@
   },
   "active": false,
   "settings": {},
-  "id": "workflow-compatible"
+  "id": "workflow-improved"
 }
