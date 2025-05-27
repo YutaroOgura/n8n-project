@@ -1,0 +1,191 @@
+{
+  "name": "Daily AI News to Slack",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "custom",
+              "cronExpression": "0 0 9 * * *"
+            }
+          ]
+        }
+      },
+      "id": 1,
+      "name": "Daily Trigger",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "none",
+        "url": "https://newsapi.org/v2/everything",
+        "responseFormat": "json",
+        "queryParametersUi": {
+          "parameter": [
+            {
+              "name": "q",
+              "value": "artificial intelligence"
+            },
+            {
+              "name": "sortBy",
+              "value": "publishedAt"
+            },
+            {
+              "name": "language",
+              "value": "en"
+            },
+            {
+              "name": "pageSize",
+              "value": "5"
+            },
+            {
+              "name": "apiKey",
+              "value": "={{ $credentials.NewsAPI.apiKey }}"
+            }
+          ]
+        }
+      },
+      "id": 2,
+      "name": "Get News",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [500, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "1",
+          "name": "NewsAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const articles = items[0].json.articles || [];\nreturn articles.map(a => ({ json: { title: a.title, url: a.url, description: a.description } }));"
+      },
+      "id": 3,
+      "name": "Split Articles",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [760, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Build prompt for OpenAI\nconst prompt = `以下のAI関連ニュースを各記事200文字以内で日本語で要約してください。\n\n` +\n  items.map((item, idx) => `${idx + 1}. タイトル: ${item.json.title}\nURL: ${item.json.url}\n説明: ${item.json.description}\n`).join('\n');\nreturn [{ json: { prompt } }];"
+      },
+      "id": 4,
+      "name": "Build Prompt",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "operation": "chat",
+        "model": "gpt-3.5-turbo",
+        "messages": {
+          "message": [
+            {
+              "role": "system",
+              "content": "あなたはプロのニュース編集者です。出力はMarkdownで、日本語で書いてください。各記事を200文字以内でまとめ、箇条書きしてください。"
+            },
+            {
+              "role": "user",
+              "content": "={{ $json.prompt }}"
+            }
+          ]
+        }
+      },
+      "id": 5,
+      "name": "Summarize with OpenAI",
+      "type": "n8n-nodes-base.openai",
+      "typeVersion": 1,
+      "position": [1240, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "2",
+          "name": "OpenAI Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "#news-ai",
+        "text": "={{ $json.choices[0].message.content }}"
+      },
+      "id": 6,
+      "name": "Post to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 1,
+      "position": [1500, 300],
+      "credentials": {
+        "slackApi": {
+          "id": "3",
+          "name": "Slack Account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get News",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get News": {
+      "main": [
+        [
+          {
+            "node": "Split Articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Articles": {
+      "main": [
+        [
+          {
+            "node": "Build Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Prompt": {
+      "main": [
+        [
+          {
+            "node": "Summarize with OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize with OpenAI": {
+      "main": [
+        [
+          {
+            "node": "Post to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "versionId": "a1b2c3d4-e5f6-7890-abcd-ef0123456789"
+}
