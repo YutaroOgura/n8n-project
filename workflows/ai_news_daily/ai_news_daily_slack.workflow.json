@@ -62,13 +62,48 @@
     },
     {
       "parameters": {
-        "functionCode": "const articles = items[0].json.articles || [];\nreturn articles.map(a => ({ json: { title: a.title, url: a.url, description: a.description } }));"
+        "functionCode": "const articles = items[0].json.articles || [];\nif (articles.length === 0) {\n  return [{ json: { noNews: true } }];\n}\nreturn articles.map(a => ({ json: { title: a.title, url: a.url, description: a.description } }));"
       },
       "id": 3,
       "name": "Split Articles",
       "type": "n8n-nodes-base.function",
       "typeVersion": 1,
       "position": [760, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.noNews === true }}"
+            }
+          ]
+        }
+      },
+      "id": 8,
+      "name": "Check No News",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "#news-ai",
+        "text": "本日のAIニュースはありません"
+      },
+      "id": 9,
+      "name": "Post No News to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 1,
+      "position": [1100, 400],
+      "credentials": {
+        "slackApi": {
+          "id": "3",
+          "name": "Slack Account"
+        }
+      }
     },
     {
       "parameters": {
@@ -111,16 +146,32 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.success === false }}"
+            }
+          ]
+        }
+      },
+      "id": 10,
+      "name": "Check Slack Post Error",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1700, 300]
+    },
+    {
+      "parameters": {
         "resource": "message",
         "operation": "post",
-        "channel": "#news-ai",
-        "text": "={{ $json.choices[0].message.content }}"
+        "channel": "#news-admin",
+        "text": "AIニュースSlack投稿に失敗しました: ={{ $json.message || 'Unknown error' }}"
       },
-      "id": 6,
-      "name": "Post to Slack",
+      "id": 11,
+      "name": "Notify Admin",
       "type": "n8n-nodes-base.slack",
       "typeVersion": 1,
-      "position": [1500, 300],
+      "position": [1900, 300],
       "credentials": {
         "slackApi": {
           "id": "3",
@@ -156,6 +207,24 @@
       "main": [
         [
           {
+            "node": "Check No News",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check No News": {
+      "main": [
+        [
+          {
+            "node": "Post No News to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
             "node": "Build Prompt",
             "type": "main",
             "index": 0
@@ -179,6 +248,28 @@
         [
           {
             "node": "Post to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Slack": {
+      "main": [
+        [
+          {
+            "node": "Check Slack Post Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Slack Post Error": {
+      "main": [
+        [
+          {
+            "node": "Notify Admin",
             "type": "main",
             "index": 0
           }
