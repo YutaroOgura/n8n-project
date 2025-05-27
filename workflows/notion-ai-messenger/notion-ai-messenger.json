@@ -1,0 +1,89 @@
+{
+  "name": "Notion AI Messenger",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {"item": [{"mode": "everyDay", "hour": 9, "minute": 0}]}
+      },
+      "name": "Cron",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [200, 200]
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "getAll",
+        "databaseId": "={{$env.NOTION_DATABASE_ID}}",
+        "credentials": {"notionApi": "Notion API"}
+      },
+      "name": "Notion",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 1,
+      "position": [400, 200]
+    },
+    {
+      "parameters": {
+        "model": "gpt-3.5-turbo",
+        "prompt": "以下の内容を要約してください: {{$json[\"properties\"]}}",
+        "credentials": {"openAIApi": "OpenAI API"}
+      },
+      "name": "OpenAI",
+      "type": "n8n-nodes-base.openai",
+      "typeVersion": 1,
+      "position": [600, 200]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Slack用メッセージ整形\nreturn [{ json: { text: $json[\"choices\"][0][\"message\"][\"content\"] } }];"
+      },
+      "name": "Format for Slack",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [800, 150]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "={{$env.SLACK_CHANNEL_ID}}",
+        "text": "={{$json[\"text\"]}}",
+        "credentials": {"slackApi": "Slack API"}
+      },
+      "name": "Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 1,
+      "position": [1000, 150]
+    },
+    {
+      "parameters": {
+        "functionCode": "// LINE用JSON変換\nreturn [{ json: { to: $env.LINE_USER_ID, messages: [{ type: 'text', text: $json[\"choices\"][0][\"message\"][\"content\"] }] } }];"
+      },
+      "name": "Format for LINE",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [800, 250]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "https://api.line.me/v2/bot/message/push",
+        "jsonParameters": true,
+        "options": {},
+        "bodyParametersJson": "={{$json}}",
+        "headerParametersJson": "{\"Authorization\":\"Bearer {{$env.LINE_CHANNEL_ACCESS_TOKEN}}\",\"Content-Type\":\"application/json\"}"
+      },
+      "name": "LINE",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1000, 250]
+    }
+  ],
+  "connections": {
+    "Cron": {"main": [[{"node": "Notion", "type": "main", "index": 0}]]},
+    "Notion": {"main": [[{"node": "OpenAI", "type": "main", "index": 0}]]},
+    "OpenAI": {"main": [[{"node": "Format for Slack", "type": "main", "index": 0}, {"node": "Format for LINE", "type": "main", "index": 0}]]},
+    "Format for Slack": {"main": [[{"node": "Slack", "type": "main", "index": 0}]]},
+    "Format for LINE": {"main": [[{"node": "LINE", "type": "main", "index": 0}]]}
+  }
+} 
