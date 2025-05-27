@@ -1,0 +1,13 @@
+{
+  "snapshot": "snapshot-id",
+  "user": "ubuntu",
+  "install": "npm install",
+  "start": "",
+  "terminals": [
+    {
+      "name": "dev",
+      "command": "npm run dev",
+      "description": "開発サーバー起動"
+    }
+  ]
+}
