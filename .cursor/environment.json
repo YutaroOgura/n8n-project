@@ -1,13 +1,16 @@
 {
-  "snapshot": "snapshot-id",
-  "user": "ubuntu",
-  "install": "npm install",
-  "start": "",
-  "terminals": [
-    {
-      "name": "dev",
-      "command": "npm run dev",
-      "description": "開発サーバー起動"
-    }
-  ]
+  "setup_commands": [
+    "echo 'Setting up n8n project environment'",
+    "node --version",
+    "npm --version",
+    "pwd",
+    "ls -la",
+    "echo 'Environment setup completed'"
+  ],
+  "environment_variables": {
+    "NODE_ENV": "development",
+    "PROJECT_TYPE": "n8n-workflows",
+    "PATH": "/usr/local/bin:/usr/bin:/bin"
+  },
+  "required_tools": ["node", "npm", "git"]
 }
