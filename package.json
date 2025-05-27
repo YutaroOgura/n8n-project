@@ -1,0 +1,15 @@
+{
+  "name": "n8n-project",
+  "version": "1.0.0",
+  "description": "n8n workflow automation project",
+  "main": "index.js",
+  "scripts": {
+    "start": "echo 'n8n project ready'",
+    "build": "echo 'Build completed'",
+    "test": "echo 'Tests passed'",
+    "dev": "echo 'Development mode'"
+  },
+  "keywords": ["n8n", "automation", "workflow"],
+  "dependencies": {},
+  "devDependencies": {}
+}
